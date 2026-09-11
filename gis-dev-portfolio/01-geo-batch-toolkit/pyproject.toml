@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geo-batch-toolkit"
+version = "1.0.0"
+description = "Batch conversion, reprojection, clipping, COG, XYZ tiling and S3 delivery for large geospatial datasets."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Shivateja Pampattiwar" }]
+license = { text = "MIT" }
+dependencies = [
+  "geopandas>=0.14",
+  "pyogrio>=0.7",
+  "rasterio>=1.3",
+  "shapely>=2.0",
+  "pyproj>=3.5",
+  "mercantile>=1.2",
+  "numpy>=1.24",
+  "pillow>=10.0",
+  "boto3>=1.28",
+  "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "moto[s3]>=5.0", "ruff>=0.4"]
+
+[project.scripts]
+geobatch = "geobatch.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::PendingDeprecationWarning:rasterio.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
