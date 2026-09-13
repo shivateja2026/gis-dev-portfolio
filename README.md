@@ -4,11 +4,13 @@ M.Sc. Geoinformatics (CGPA 9.06, First Division with Distinction) · Founder, [B
 
 A monorepo of working GIS development projects: batch data conversion, Esri/QGIS tooling, automation, raster tiling, dashboards, .NET, and delivery documentation. Each module has its own README, tests and an **honesty table** stating what it does and does not demonstrate.
 
+This repo holds the open, personal-portfolio core only. Production surfaces built on top of module 01 (a subscription REST API, a web tool, a QGIS plugin, a Windows desktop app) are developed separately, under [Bhoo-Mitra Geo Technologies](https://www.bmgt.in), for commercial purposes — not in this repository.
+
 ## Modules
 
 | # | Module | Status | Stack |
 |---|---|---|---|
-| 01 | [geo-batch-toolkit](01-geo-batch-toolkit/) | ✅ v1.0.0 | Python, GDAL (pyogrio/rasterio), AWS S3, click, pytest |
+| 01 | [geo-batch-toolkit](01-geo-batch-toolkit/) | ✅ v1.1.1 | Python, GDAL (pyogrio/rasterio), AWS S3, click, pytest |
 | 02 | arcpy-toolbox | 🗓 Sep 17 | ArcGIS Pro, arcpy, Python toolbox |
 | 03 | qgis-plugin | 🗓 Sep 15–16 | PyQGIS, PyQt/Qt Designer |
 | 04 | automation (shell + web API) | 🗓 Sep 18 | bash, Python, REST APIs, cron |

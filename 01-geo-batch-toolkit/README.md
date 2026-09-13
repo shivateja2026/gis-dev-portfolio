@@ -108,3 +108,7 @@ $ geobatch tiles out/input_raster/dem.tif out/tiles --zoom 9-13
 | Parallel processing with failure isolation | Distributed processing (Dask/Spark) |
 
 The ArcGIS equivalent (arcpy script tools) is in module `02-arcpy-toolbox`.
+
+## Commercial use
+
+This module is the open core. A subscription REST API, a web tool, a QGIS plugin, and a Windows desktop app are built on top of it as commercial products, developed separately under [Bhoo-Mitra Geo Technologies](https://www.bmgt.in) — not part of this repository.
