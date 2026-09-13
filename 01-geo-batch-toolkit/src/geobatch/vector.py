@@ -3,16 +3,23 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 import geopandas as gpd
+import pyogrio
 from shapely.geometry import box
 
-from .formats import VECTOR_FORMATS, WGS84_ONLY
+from .formats import VECTOR_FORMATS, WGS84_ONLY, dataset_size_bytes
 
 log = logging.getLogger(__name__)
 
 BBox = tuple[float, float, float, float]
+
+# Above this size, convert_vector reads/writes in batches instead of loading the
+# whole dataset into memory at once (see convert_vector_chunked).
+CHUNK_THRESHOLD_BYTES = 5 * 1024**3
+CHUNK_SIZE_FEATURES = 200_000
 
 
 def read_vector(path: str | Path) -> gpd.GeoDataFrame:
@@ -37,7 +44,14 @@ def transform_vector(
     return gdf
 
 
-def write_vector(gdf: gpd.GeoDataFrame, out_path: Path, fmt: str) -> Path:
+def _clear_existing_output(out_path: Path) -> None:
+    """Remove an old dataset (and sidecars) so reruns are idempotent."""
+    if out_path.exists():
+        for sidecar in out_path.parent.glob(out_path.stem + ".*"):
+            sidecar.unlink()
+
+
+def write_vector(gdf: gpd.GeoDataFrame, out_path: Path, fmt: str, mode: str = "w") -> Path:
     driver, _ = VECTOR_FORMATS[fmt]
     if fmt in WGS84_ONLY and gdf.crs is not None and gdf.crs.to_epsg() != 4326:
         log.warning("%s requires EPSG:4326; reprojecting %s from %s", fmt, out_path.name, gdf.crs)
@@ -47,11 +61,36 @@ def write_vector(gdf: gpd.GeoDataFrame, out_path: Path, fmt: str) -> Path:
         if long_fields:
             log.warning("Shapefile truncates field names >10 chars: %s", long_fields)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    if out_path.exists():
-        # Remove old dataset (and sidecars) so reruns are idempotent.
-        for sidecar in out_path.parent.glob(out_path.stem + ".*"):
-            sidecar.unlink()
-    gdf.to_file(out_path, driver=driver, engine="pyogrio")
+    if mode == "w":
+        _clear_existing_output(out_path)
+    gdf.to_file(out_path, driver=driver, engine="pyogrio", mode=mode)
+    return out_path
+
+
+def convert_vector_chunked(
+    src: Path,
+    out_path: Path,
+    fmt: str,
+    target_crs: str | None,
+    bbox: BBox | None,
+    mask: gpd.GeoDataFrame | None,
+    chunk_size: int,
+    progress_cb: Callable[[int, int], None] | None,
+) -> Path:
+    """Read/transform/write in batches so the whole dataset never sits in memory at once."""
+    _clear_existing_output(out_path)
+    total = pyogrio.read_info(src)["features"]
+    wrote_any = False
+    for offset in range(0, total, chunk_size):
+        gdf = gpd.read_file(src, engine="pyogrio", skip_features=offset, max_features=chunk_size)
+        gdf = transform_vector(gdf, target_crs, bbox, mask)
+        if not gdf.empty:
+            write_vector(gdf, out_path, fmt, mode="a" if wrote_any else "w")
+            wrote_any = True
+        if progress_cb:
+            progress_cb(min(offset + chunk_size, total), total)
+    if not wrote_any:
+        log.warning("%s: no features left after clipping", src.name)
     return out_path
 
 
@@ -62,15 +101,21 @@ def convert_vector(
     target_crs: str | None = None,
     bbox: BBox | None = None,
     mask_path: str | Path | None = None,
+    chunk_threshold: int = CHUNK_THRESHOLD_BYTES,
+    chunk_size: int = CHUNK_SIZE_FEATURES,
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> Path:
     """Convert one vector dataset. Returns the output path."""
     if fmt not in VECTOR_FORMATS:
         raise ValueError(f"Unsupported output format '{fmt}'. Choose from {sorted(VECTOR_FORMATS)}")
     src = Path(src)
-    gdf = read_vector(src)
     mask = read_vector(mask_path) if mask_path else None
-    gdf = transform_vector(gdf, target_crs, bbox, mask)
+    out_path = Path(out_dir) / f"{src.stem}{VECTOR_FORMATS[fmt][1]}"
+    if dataset_size_bytes(src) >= chunk_threshold:
+        return convert_vector_chunked(
+            src, out_path, fmt, target_crs, bbox, mask, chunk_size, progress_cb
+        )
+    gdf = transform_vector(read_vector(src), target_crs, bbox, mask)
     if gdf.empty:
         log.warning("%s: no features left after clipping", src.name)
-    out_path = Path(out_dir) / f"{src.stem}{VECTOR_FORMATS[fmt][1]}"
     return write_vector(gdf, out_path, fmt)

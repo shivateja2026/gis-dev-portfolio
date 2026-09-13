@@ -59,6 +59,19 @@ def test_rerun_is_idempotent(vector_dir, tmp_path):
     assert len(gpd.read_file(out)) == 50
 
 
+def test_chunked_path_matches_single_shot(vector_dir, tmp_path):
+    calls = []
+    chunked = convert_vector(vector_dir / "sites.shp", tmp_path / "chunked", "gpkg",
+                             target_crs="EPSG:32644", chunk_threshold=0, chunk_size=7,
+                             progress_cb=lambda done, total: calls.append((done, total)))
+    whole = convert_vector(vector_dir / "sites.shp", tmp_path / "whole", "gpkg",
+                           target_crs="EPSG:32644")
+    chunked_gdf, whole_gdf = gpd.read_file(chunked), gpd.read_file(whole)
+    assert len(chunked_gdf) == len(whole_gdf) == 50
+    assert chunked_gdf.total_bounds == pytest.approx(whole_gdf.total_bounds)
+    assert calls[-1] == (50, 50)
+
+
 def test_unknown_format_rejected(vector_dir, tmp_path):
     with pytest.raises(ValueError, match="Unsupported"):
         convert_vector(vector_dir / "sites.shp", tmp_path, "dwg")

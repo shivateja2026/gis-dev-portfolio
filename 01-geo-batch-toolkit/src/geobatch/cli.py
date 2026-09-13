@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import click
+from tqdm import tqdm
 
 from . import __version__
 from .batch import run_batch
@@ -16,7 +17,9 @@ from .info import describe
 from .raster import convert_raster
 from .s3 import upload_directory
 from .tiles import generate_xyz_tiles
-from .vector import convert_vector
+from .vector import CHUNK_SIZE_FEATURES, CHUNK_THRESHOLD_BYTES, convert_vector
+
+log = logging.getLogger(__name__)
 
 
 def _bbox(ctx, param, value):
@@ -51,6 +54,25 @@ def main(verbose: bool) -> None:
     )
 
 
+def _log_progress_cb(processed: int, total: int) -> None:
+    log.info("%d/%d features (%.0f%%)", processed, total, 100 * processed / total)
+
+
+def _tqdm_progress_cb():
+    """Live bar for a single file processed by a single worker; picklable fallback otherwise."""
+    bar = None
+
+    def cb(processed: int, total: int) -> None:
+        nonlocal bar
+        if bar is None:
+            bar = tqdm(total=total, unit="feat", desc="Converting", leave=False)
+        bar.update(processed - bar.n)
+        if processed >= total:
+            bar.close()
+
+    return cb
+
+
 def _summarise(results) -> None:
     ok = sum(r.status == "ok" for r in results)
     click.echo(f"\n{ok}/{len(results)} succeeded. Report: run_report.json / run_report.csv")
@@ -66,12 +88,20 @@ def _summarise(results) -> None:
 @click.option("--bbox", callback=_bbox, help="Clip box in OUTPUT CRS: minx,miny,maxx,maxy")
 @click.option("--mask", "mask_path", type=click.Path(exists=True), help="Clip to polygon layer")
 @click.option("--workers", default=1, show_default=True, help="Parallel processes")
-def vector_convert(input_dir, output_dir, fmt, target_crs, bbox, mask_path, workers):
+@click.option("--chunk-threshold-gb", default=CHUNK_THRESHOLD_BYTES / 1024**3, show_default=True,
+              help="Read/write in batches above this source size, to bound memory use")
+@click.option("--chunk-size", default=CHUNK_SIZE_FEATURES, show_default=True,
+              help="Features per batch once chunked conversion kicks in")
+def vector_convert(input_dir, output_dir, fmt, target_crs, bbox, mask_path, workers,
+                   chunk_threshold_gb, chunk_size):
     """Convert every vector dataset in INPUT_DIR (Shapefile, GPKG, GeoJSON, FGB, KML, TAB, MIF)."""
     files = discover(input_dir, "vector")
     click.echo(f"Found {len(files)} vector datasets")
+    progress_cb = _tqdm_progress_cb() if len(files) == 1 and workers <= 1 else _log_progress_cb
     results = run_batch(convert_vector, files, output_dir, workers, out_dir=output_dir, fmt=fmt,
-                        target_crs=target_crs, bbox=bbox, mask_path=mask_path)
+                        target_crs=target_crs, bbox=bbox, mask_path=mask_path,
+                        chunk_threshold=int(chunk_threshold_gb * 1024**3), chunk_size=chunk_size,
+                        progress_cb=progress_cb)
     _summarise(results)
 
 

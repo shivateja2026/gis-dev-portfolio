@@ -15,13 +15,13 @@ VECTOR_FORMATS: dict[str, tuple[str, str]] = {
     "mif": ("MapInfo File", ".mif"),  # MapInfo interchange (.mif/.mid)
 }
 
-# Extensions that identify the *primary* file of a vector dataset.
+# Selecting only required extensions.
 # Sidecar files (.dbf, .shx, .prj, .dat, .map, .id, .mid) are deliberately excluded.
 VECTOR_INPUT_EXTS = {".shp", ".gpkg", ".geojson", ".fgb", ".kml", ".tab", ".mif"}
 
 RASTER_INPUT_EXTS = {".tif", ".tiff", ".img", ".jp2"}
 
-# Formats whose specification fixes the CRS to WGS84 lon/lat.
+# These file formats specifications fixes the CRS to WGS84 lon/lat.
 WGS84_ONLY = {"kml", "geojson"}
 
 
@@ -33,3 +33,13 @@ def discover(input_dir: str | Path, kind: str, recursive: bool = True) -> list[P
         raise NotADirectoryError(f"Input directory not found: {root}")
     pattern = "**/*" if recursive else "*"
     return sorted(p for p in root.glob(pattern) if p.is_file() and p.suffix.lower() in exts)
+
+
+def dataset_size_bytes(path: str | Path) -> int:
+    """Total size of a dataset's primary file plus any sidecars sharing its stem.
+
+    A Shapefile's ``.dbf`` is often larger than the ``.shp`` itself, so the primary
+    file alone understates a dataset's real size.
+    """
+    path = Path(path)
+    return sum(p.stat().st_size for p in path.parent.glob(path.stem + ".*"))

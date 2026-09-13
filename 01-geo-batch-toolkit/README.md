@@ -1,7 +1,7 @@
 # 01 · geo-batch-toolkit
 
 [![CI](https://github.com/shivateja2026/gis-dev-portfolio/actions/workflows/ci.yml/badge.svg)](https://github.com/shivateja2026/gis-dev-portfolio/actions)
-![Python](https://img.shields.io/badge/python-3.10%20|%203.12-blue) ![Version](https://img.shields.io/badge/version-1.0.0-green)
+![Python](https://img.shields.io/badge/python-3.10%20|%203.12-blue) ![Version](https://img.shields.io/badge/version-1.1.0-green)
 
 A command-line toolkit that **batch-processes large geospatial datasets**: format conversion (including **MapInfo TAB/MIF**), reprojection, clipping, **Cloud-Optimized GeoTIFF** output, **XYZ tile pyramid** generation, and delivery to **AWS S3**, with a per-file run report for every batch.
 
@@ -18,7 +18,7 @@ Built for the everyday data-conversion work in GIS delivery projects: a client s
 | `geobatch info` | Prints CRS, bounds, size, schema and COG status as JSON |
 | `geobatch formats` | Lists supported output formats |
 
-Every batch command runs files in parallel (`--workers N`), **isolates failures** (one corrupt file is logged and reported, and the rest of the batch continues), and writes `run_report.json` + `run_report.csv` (status, output path, time taken, error per file).
+Every batch command runs files in parallel (`--workers N`), **isolates failures** (one corrupt file is logged and reported, and the rest of the batch continues), and writes `run_report.json` + `run_report.csv` (status, output path, time taken, error per file). `vector-convert` reads/writes in batches once a source dataset crosses `--chunk-threshold-gb` (default 5GB), instead of loading it into memory whole, with a live progress bar when converting a single large file.
 
 ## Quick start
 
@@ -76,6 +76,7 @@ $ geobatch tiles out/input_raster/dem.tif out/tiles --zoom 9-13
 - **Clipping happens after reprojection**, so `--bbox` is always in the output CRS (documented in `--help`).
 - **Resampling is explicit:** `nearest` by default (safe for categorical LULC rasters); `bilinear`/`cubic` for continuous data like DEMs.
 - **Idempotent reruns:** old outputs and their sidecars are removed before writing, so reruns never append duplicates.
+- **Chunked vector conversion above 5GB:** real-world testing on OSM road data (24GB, ~37MB/s single-threaded) showed peak memory tracks geometry complexity more than file size — a large-but-simple file can convert fine while a smaller, vertex-dense one thrashes. Past the size threshold, `vector-convert` reads/transforms/writes in feature batches (`--chunk-size`, default 200k features) instead of holding the whole dataset in memory. **Known gap:** chunking to FlatGeobuf is currently much slower than a single-shot conversion (FGB's append appears to redo spatial-index work per chunk); GPKG does not have this problem. Prefer `--to gpkg` for large sources until this is fixed — see CHANGELOG.
 - **COG via GDAL's COG driver:** internal tiling and overviews, so outputs can be streamed over HTTP range requests directly from S3.
 - **Tiles use one global stretch** (min/max computed once at overview resolution), so neighbouring tiles don't show seams.
 - **No credentials in code:** S3 uses the standard AWS credential chain (env vars, `~/.aws`, IAM role).
@@ -103,7 +104,7 @@ $ geobatch tiles out/input_raster/dem.tif out/tiles --zoom 9-13
 |---|---|
 | Batch conversion/reprojection/clipping across 7 vector formats incl. MapInfo | Use of MapInfo Professional (the desktop product); MapInfo *data formats* are handled via GDAL |
 | COG creation, XYZ tiling, S3 delivery | Production tile serving at scale (CDN, cache invalidation) |
-| Tested behaviour on synthetic data | Benchmarks on multi-GB production datasets (planned: real Telangana datasets) |
+| Tested behaviour on synthetic data, plus real OSM road data up to 24GB | Benchmarks across the full range of production dataset sizes/shapes; raster's masked-clip path is not yet chunked, unlike vector |
 | Parallel processing with failure isolation | Distributed processing (Dask/Spark) |
 
 The ArcGIS equivalent (arcpy script tools) is in module `02-arcpy-toolbox`.

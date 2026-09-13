@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); modules
 
 ## [Unreleased]
 
+## geo-batch-toolkit 1.1.0 — 2026-09-13
+### Added
+- Chunked vector conversion: `vector-convert` now reads/transforms/writes in feature
+  batches once a source dataset crosses `--chunk-threshold-gb` (default 5GB), instead
+  of loading it into memory whole. `--chunk-size` controls the batch size.
+- Live `tqdm` progress bar when converting a single large file with `--workers 1`;
+  a plain per-chunk log line otherwise (multiple files / parallel workers).
+### Fixed
+- Real-world testing on a 24GB OSM roads Shapefile surfaced RAM thrashing on large
+  datasets; the chunked path above removes the whole-file-in-memory bottleneck for
+  vector conversions. Raster's masked-clip path has the same theoretical risk and is
+  a planned follow-up, not addressed here.
+### Known issues
+- Chunked conversion **to FlatGeobuf** is currently much slower than a single-shot
+  conversion of the same file (5613s vs 661s on the 24GB roads test file) — FGB's
+  append support appears to redo significant spatial-index work on every chunk.
+  Chunking **to GPKG** does not have this problem (405s on the same file, faster
+  than the single-shot FGB run). Until fixed: prefer `--to gpkg` for large sources;
+  a chunk-to-GPKG-then-translate-once approach for FGB output is planned.
+
 ## geo-batch-toolkit 1.0.0 — 2026-09-13
 ### Added
 - Batch vector conversion across Shapefile, GeoPackage, GeoJSON, FlatGeobuf, KML and **MapInfo TAB/MIF**.
