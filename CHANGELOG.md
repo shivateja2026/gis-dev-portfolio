@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); modules
 
 ## [Unreleased]
 
+## geo-batch-toolkit 1.1.1 — 2026-09-13
+### Fixed
+- FlatGeobuf output no longer takes the incremental-write path regardless of source
+  size — its append support redoes significant spatial-index work on every chunk
+  (5613s vs 661s single-shot on the 24GB roads test file), so `vector-convert --to fgb`
+  always writes the output once. This is a deliberate trade-off: very large FGB
+  conversions can still hit the memory ceiling incremental writes exist to avoid;
+  `--to gpkg` is the safer choice for large sources. A log line notes when a large
+  FGB source skips incremental writes for this reason. Verified against the real
+  24GB file: 592.9s, back in line with the original single-shot baseline.
+- Progress reporting no longer requires crossing the chunk-write threshold: every
+  `vector-convert` reads its input in batches (`--chunk-size`) purely to report
+  progress, then either writes incrementally (large, non-FGB sources) or accumulates
+  and writes once (everything else, including small files and all FGB output) —
+  so a live progress bar now shows for any single-file conversion, not just large ones.
+
 ## geo-batch-toolkit 1.1.0 — 2026-09-13
 ### Added
 - Chunked vector conversion: `vector-convert` now reads/transforms/writes in feature

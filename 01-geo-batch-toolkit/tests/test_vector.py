@@ -72,6 +72,21 @@ def test_chunked_path_matches_single_shot(vector_dir, tmp_path):
     assert calls[-1] == (50, 50)
 
 
+def test_fgb_bypasses_chunked_writes_but_still_reports_progress(vector_dir, tmp_path):
+    calls = []
+    out = convert_vector(vector_dir / "sites.shp", tmp_path / "out", "fgb", chunk_threshold=0,
+                         chunk_size=7, progress_cb=lambda done, total: calls.append((done, total)))
+    assert calls[-1] == (50, 50)
+    assert len(gpd.read_file(out)) == 50
+
+
+def test_small_file_reports_progress(vector_dir, tmp_path):
+    calls = []
+    convert_vector(vector_dir / "sites.shp", tmp_path / "out", "gpkg",
+                   progress_cb=lambda done, total: calls.append((done, total)))
+    assert calls == [(50, 50)]
+
+
 def test_unknown_format_rejected(vector_dir, tmp_path):
     with pytest.raises(ValueError, match="Unsupported"):
         convert_vector(vector_dir / "sites.shp", tmp_path, "dwg")

@@ -89,9 +89,10 @@ def _summarise(results) -> None:
 @click.option("--mask", "mask_path", type=click.Path(exists=True), help="Clip to polygon layer")
 @click.option("--workers", default=1, show_default=True, help="Parallel processes")
 @click.option("--chunk-threshold-gb", default=CHUNK_THRESHOLD_BYTES / 1024**3, show_default=True,
-              help="Read/write in batches above this source size, to bound memory use")
+              help="Write in batches (not just read) above this source size, to bound "
+                   "memory use - always skipped for FGB, which writes once regardless")
 @click.option("--chunk-size", default=CHUNK_SIZE_FEATURES, show_default=True,
-              help="Features per batch once chunked conversion kicks in")
+              help="Features per read batch (also the write batch size, once chunked)")
 def vector_convert(input_dir, output_dir, fmt, target_crs, bbox, mask_path, workers,
                    chunk_threshold_gb, chunk_size):
     """Convert every vector dataset in INPUT_DIR (Shapefile, GPKG, GeoJSON, FGB, KML, TAB, MIF)."""

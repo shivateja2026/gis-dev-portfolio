@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import geopandas as gpd
+import pandas as pd
 import pyogrio
 from shapely.geometry import box
 
@@ -16,8 +17,10 @@ log = logging.getLogger(__name__)
 
 BBox = tuple[float, float, float, float]
 
-# Above this size, convert_vector reads/writes in batches instead of loading the
-# whole dataset into memory at once (see convert_vector_chunked).
+# convert_vector always reads/transforms in batches of this size (so progress can be
+# reported); above this source size it also *writes* incrementally, so the whole
+# dataset never sits in memory at once. FlatGeobuf is exempt from incremental writes
+# (see convert_vector_batched) regardless of size.
 CHUNK_THRESHOLD_BYTES = 5 * 1024**3
 CHUNK_SIZE_FEATURES = 200_000
 
@@ -67,7 +70,7 @@ def write_vector(gdf: gpd.GeoDataFrame, out_path: Path, fmt: str, mode: str = "w
     return out_path
 
 
-def convert_vector_chunked(
+def convert_vector_batched(
     src: Path,
     out_path: Path,
     fmt: str,
@@ -76,19 +79,33 @@ def convert_vector_chunked(
     mask: gpd.GeoDataFrame | None,
     chunk_size: int,
     progress_cb: Callable[[int, int], None] | None,
+    stream_write: bool,
 ) -> Path:
-    """Read/transform/write in batches so the whole dataset never sits in memory at once."""
+    """Read/transform in batches (so progress can be reported on any size of input).
+
+    ``stream_write`` writes each batch as it's read, so the whole dataset never sits in
+    memory at once. When ``False`` (FlatGeobuf, or anything under the chunk threshold),
+    batches are accumulated and written once at the end instead - same memory profile
+    as a single-shot conversion, just read in pieces so progress is visible.
+    """
     _clear_existing_output(out_path)
     total = pyogrio.read_info(src)["features"]
+    pending = []
     wrote_any = False
     for offset in range(0, total, chunk_size):
         gdf = gpd.read_file(src, engine="pyogrio", skip_features=offset, max_features=chunk_size)
         gdf = transform_vector(gdf, target_crs, bbox, mask)
         if not gdf.empty:
-            write_vector(gdf, out_path, fmt, mode="a" if wrote_any else "w")
-            wrote_any = True
+            if stream_write:
+                write_vector(gdf, out_path, fmt, mode="a" if wrote_any else "w")
+                wrote_any = True
+            else:
+                pending.append(gdf)
         if progress_cb:
             progress_cb(min(offset + chunk_size, total), total)
+    if pending:
+        write_vector(pd.concat(pending, ignore_index=True), out_path, fmt)
+        wrote_any = True
     if not wrote_any:
         log.warning("%s: no features left after clipping", src.name)
     return out_path
@@ -111,11 +128,11 @@ def convert_vector(
     src = Path(src)
     mask = read_vector(mask_path) if mask_path else None
     out_path = Path(out_dir) / f"{src.stem}{VECTOR_FORMATS[fmt][1]}"
-    if dataset_size_bytes(src) >= chunk_threshold:
-        return convert_vector_chunked(
-            src, out_path, fmt, target_crs, bbox, mask, chunk_size, progress_cb
-        )
-    gdf = transform_vector(read_vector(src), target_crs, bbox, mask)
-    if gdf.empty:
-        log.warning("%s: no features left after clipping", src.name)
-    return write_vector(gdf, out_path, fmt)
+    size = dataset_size_bytes(src)
+    stream_write = fmt != "fgb" and size >= chunk_threshold
+    if fmt == "fgb" and size >= chunk_threshold:
+        log.info("FlatGeobuf doesn't support efficient chunked appends; converting %s "
+                 "(%.1fGB) in a single pass instead", src.name, size / 1024**3)
+    return convert_vector_batched(
+        src, out_path, fmt, target_crs, bbox, mask, chunk_size, progress_cb, stream_write
+    )
